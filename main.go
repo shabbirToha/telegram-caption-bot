@@ -79,19 +79,42 @@ func main() {
 	u.Timeout = 60
 	updates := api.GetUpdatesChan(u)
 
-	// Listen for updates
-	for update := range updates {
-		if update.CallbackQuery != nil {
-			bot.handleCallbackQuery(update.CallbackQuery)
-		} else if update.Message != nil {
-			if update.Message.Photo != nil {
-				bot.handlePhoto(update.Message)
-			} else if update.Message.IsCommand() {
-				bot.handleCommand(update.Message)
-			} else {
-				bot.handleMessage(update.Message)
+	// --- NEW: Start the bot logic in a separate goroutine ---
+	// This lets the bot run its long-pollyng loop
+	// while the main thread runs the HTTP server for health checks.
+	go func() {
+		// Listen for updates
+		for update := range updates {
+			if update.CallbackQuery != nil {
+				bot.handleCallbackQuery(update.CallbackQuery)
+			} else if update.Message != nil {
+				if update.Message.Photo != nil && len(update.Message.Photo) > 0 { // Added safety check
+					bot.handlePhoto(update.Message)
+				} else if update.Message.IsCommand() {
+					bot.handleCommand(update.Message)
+				} else {
+					bot.handleMessage(update.Message)
+				}
 			}
 		}
+	}()
+
+	// --- NEW: Start a simple HTTP server for health checks ---
+	// Hosting platforms like Render.com require the app to bind to a port
+	// and respond to HTTP requests to be considered "healthy".
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "Bot is alive!")
+	})
+
+	// Get the port from the environment (required by hosting platforms)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Default port for local testing
+	}
+
+	log.Printf("Starting health check server on port %s", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Panic(err)
 	}
 }
 
@@ -148,7 +171,8 @@ func (b *Bot) handlePhoto(message *tgbotapi.Message) {
 	state := b.getState(userID)
 
 	// Get the largest photo
-	photo := (message.Photo)[len(message.Photo)-1]
+	// FIX: Removed the incorrect asterisk. message.Photo is a slice, not a pointer.
+	photo := message.Photo[len(message.Photo)-1]
 
 	// Download the photo
 	photoData, mimeType, err := b.downloadFile(photo.FileID)
