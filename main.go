@@ -170,8 +170,7 @@ func (b *Bot) handlePhoto(message *tgbotapi.Message) {
 	userID := message.From.ID
 	state := b.getState(userID)
 
-	// Get the largest photo
-	// FIX: Removed the incorrect asterisk. message.Photo is a slice, not a pointer.
+	// Get the largest photo (the last one in the slice is the highest quality)
 	photo := message.Photo[len(message.Photo)-1]
 
 	// Download the photo
